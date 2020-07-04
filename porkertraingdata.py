@@ -1,128 +1,94 @@
 import sys
 from datetime import datetime
 
-import cv2
-import keras
 import numpy as np
+from tensorflow import keras
+from tensorflow.keras.layers import Conv2D, AveragePooling2D
+from tensorflow.keras.layers import Dense, Dropout, Flatten
+from tensorflow.keras.models import Sequential
+from tensorflow.python.keras.models import load_model
+from tensorflow.python.keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
-from keras import backend as K
-from keras.layers import Conv2D, AveragePooling2D
-from keras.layers import Dense, Dropout, Flatten
-from keras.models import Sequential
-
-config = tf.ConfigProto()
-config.gpu_options.allow_growth = True
-sess = tf.Session(config=config)
-K.set_session(sess)
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    [tf.config.experimental.set_memory_growth(gpu, True) for gpu in gpus]
 
 logdir = "logs/scalars/" + datetime.now().strftime("%Y%m%d-%H%M%S")
-tensorboard_callback = keras.callbacks.TensorBoard(log_dir=logdir, write_grads=True)
+tensorboard_callback = keras.callbacks.TensorBoard(log_dir=logdir)
 
-batch_size = 64
-num_classes = 13
-epochs = 100
-# input image dimensions
-img_rows, img_cols = 128, 128
+batch_size = 32
+num_classes = 52
+epochs = 100000
 
-input_shape = (img_rows, img_cols)
+input_shape = (128, 128)
 
 np.set_printoptions(threshold=sys.maxsize)
-# data = np.ones((26, 3, img_rows, img_cols))
-x_train = np.load('data.npy')
-# test = np.ones((13, 3, img_rows, img_cols))
-x_test = np.load('test.npy')
-for i, x in enumerate(x_train):
-    x_train[i] = x[0] * 0.299 + x[1] * 0.587 + x[2] * 0.114
-x_train = np.array(x_train)
-for i, x in enumerate(x_test):
-    x_test[i] = x[0] * 0.299 + x[1] * 0.587 + x[2] * 0.114
-x_train = np.array(x_train)
-x_test = np.array(x_test)
-# print(x_train[0][0],x_train[0][0].shape)
-# print(x_train[2].shape)
-# print(x_train[0])
-# plt.imshow(x_train[1999])
 
+train_dir = "train/"
+is_continue = True
 
-x = int(len(data) / 13)
+datagen = ImageDataGenerator(
+    validation_split=0.2,
+    rescale=1./255,
+    rotation_range=20,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    zoom_range=0.2
+    )
 
-y_train = np.zeros(int(len(data) / 13))
-# y_train = np.append(y_train,np.ones(int(len(data)/13)))
-for i in range(12):
-    p = i + 1
-    Tdata = np.full(x, p, )
-    y_train = np.append(y_train, Tdata)
+train_generator = datagen.flow_from_directory(
+    train_dir,
+    target_size=input_shape,
+    color_mode="grayscale",
+    batch_size=batch_size,
+    subset='training'
+)
 
-# print(y_train)
+val_generator = datagen.flow_from_directory(
+    train_dir,
+    target_size=input_shape,
+    color_mode="grayscale",
+    batch_size=batch_size,
+    subset='validation'
+)
 
-y = int(len(test) / 13)
-y_test = np.zeros(int(len(test) / 13))
-# y_test = np.append(y_test,np.ones(int(len(test)/13)))
-for i in range(12):
-    p = i + 1
-    Ttest = np.full(y, p)
-    y_test = np.append(y_test, Ttest)
+if is_continue:
+    model = load_model("TraingData.h5")
+else:
+    model = Sequential()
 
-# print(y_test)
+    model.add(Conv2D(32, (3, 3), activation='relu', input_shape=(*input_shape, 1)))
+    model.add(AveragePooling2D(pool_size=(2, 2)))
+    model.add(Conv2D(32, (3, 3), activation='relu'))
+    model.add(AveragePooling2D(pool_size=(2, 2)))
+    model.add(Conv2D(64, (3, 3), activation='relu'))
+    model.add(AveragePooling2D(pool_size=(2, 2)))
 
-x_train = x_train.reshape((x_train.shape[0], img_rows, img_cols, 1))
-x_test = x_test.reshape((x_test.shape[0], img_rows, img_cols, 1))
-for img in x_test:
-    cv2.imshow("img", img)
-    cv2.waitKey()
-input_shape = (img_rows, img_cols, 1)
+    # model.add(Conv2D(128, (3, 3), padding='same', activation='relu'))
+    # model.add(Conv2D(128, (3, 3), padding='same', activation='relu'))
+    # model.add(MaxPooling2D(pool_size=(2, 2)))
+    # model.add(Dropout(0.2))
+    #
+    # model.add(Conv2D(256, (3, 3), padding='same', activation='relu'))
+    # model.add(Conv2D(256, (3, 3), padding='same', activation='relu'))
+    # model.add(MaxPooling2D(pool_size=(2, 2)))
+    # model.add(Dropout(0.2))
 
-x_train = x_train.astype('float32')
-x_test = x_test.astype('float32')
-x_train /= 255
-x_test /= 255
-print('x_train shape:', x_train.shape)
-print(x_train.shape[0], 'train samples')
-print(x_test.shape[0], 'test samples')
-print(x_train.shape, y_train.shape, x_test.shape, y_test.shape)
+    model.add(Flatten())
+    model.add(Dense(64, activation="relu"))
+    model.add(Dropout(0.5))
+    model.add(Dense(num_classes, activation='softmax'))
 
-# # convert class vectors to binary class matrices
-y_train = keras.utils.to_categorical(y_train, num_classes)
-y_test = keras.utils.to_categorical(y_test, num_classes)
-model = Sequential()
+    model.compile(loss=keras.losses.categorical_crossentropy,
+                  optimizer=keras.optimizers.Adadelta(),
+                  metrics=['accuracy'])
 
-model.add(Conv2D(32, (3, 3), activation='relu', input_shape=input_shape))
-model.add(Conv2D(16, (1, 1), activation='relu'))
-model.add(AveragePooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.5))
-
-model.add(Conv2D(64, (3, 3), activation='relu'))
-model.add(Conv2D(32, (1, 1), activation='relu'))
-model.add(AveragePooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.5))
-
-model.add(Flatten())
-# model.add(Dense(128, activation='relu'))
-# model.add(Dropout(0.5))
-model.add(Dense(num_classes, activation='softmax'))
-
-# model.add(Conv2D(32, kernel_size=(3, 3),
-#                   activation='relu',
-#                   input_shape=input_shape))
-# model.add(Conv2D(64, (3, 3), activation='relu'))
-# model.add(MaxPooling2D(pool_size=(2, 2)))
-# model.add(Dropout(0.25))
-# model.add(Flatten())
-# model.add(Dense(128, activation='relu'))
-# model.add(Dropout(0.5))
-# model.add(Dense(num_classes, activation='softmax'))
-
-model.compile(loss=keras.losses.categorical_crossentropy,
-              optimizer=keras.optimizers.Adadelta(),
-              metrics=['accuracy'])
-
-model.fit(x_train, y_train,
-          batch_size=batch_size,
-          epochs=epochs,
-          validation_data=(x_test, y_test),
+model.fit(train_generator,
+          steps_per_epoch=8, epochs=epochs,
+          validation_data=val_generator,
+          validation_steps=1,
           callbacks=[tensorboard_callback])
-score = model.evaluate(x_test, y_test, verbose=0)
-print('Test loss:', score[0])
-print('Test accuracy:', score[1])
+# print('Test loss:', score[0])
+# print('Test accuracy:', score[1])
 
 model.save("TraingData.h5")
